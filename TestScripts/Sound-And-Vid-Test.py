@@ -75,17 +75,6 @@ while True:
     # Video frame
     frame = q.get()
 
-    # Calculate FPS
-    frame = cv2.putText(frame, 'FPS: ' + str(round(fps, 1)), (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-    if cnt == frames_to_count:
-        try:
-            fps = frames_to_count / (time.time() - st)
-            st = time.time()
-            cnt = 0
-        except ZeroDivisionError:
-            pass
-    cnt += 1
-
     # Display frame
     cv2.imshow('Video Stream', frame)
 
