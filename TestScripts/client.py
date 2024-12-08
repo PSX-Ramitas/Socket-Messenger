@@ -34,6 +34,7 @@ if not cam.isOpened():
 def send_data(client_socket):
     """Capture and send video frames only."""
     try:
+        stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
         while not stop_client.is_set():
             ret, frame = cam.read()
             if not ret or frame is None:
@@ -43,7 +44,12 @@ def send_data(client_socket):
             # Resize and serialize the frame
             frame = imutils.resize(frame, width=320)
             frame_data = pickle.dumps(frame)
-            packet = struct.pack("Q", len(frame_data)) + frame_data
+
+            # Capture audio data
+            audio_data = stream.read(CHUNK)
+
+            # Pack and send video + audio data
+            packet = struct.pack("Q", len(frame_data)) + frame_data + audio_data
             client_socket.sendall(packet)
             print(f"Packet sent, frame size: {len(frame_data)} bytes")
             time.sleep(0.5)  # Throttle to avoid overwhelming the server
@@ -59,6 +65,7 @@ def receive_data(client_socket):
     """Receive and display video frames only."""
     print("Starting receive_data...")
     try:
+        stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, output=True)
         data_buffer = b""
         payload_size = struct.calcsize("Q")
 
@@ -80,10 +87,17 @@ def receive_data(client_socket):
                 data_buffer += packet
 
             frame_data = data_buffer[:msg_size]
+            audio_data = data_buffer[msg_size:msg_size + CHUNK]
             data_buffer = data_buffer[msg_size:]
 
+            # Deserialize video frame
             frame = pickle.loads(frame_data)
+
+            # Display video frame
             cv2.imshow("Video Stream", frame)
+
+            # Play audio
+            stream.write(audio_data)
 
             if cv2.waitKey(1) & 0xFF == ord('q') or cv2.getWindowProperty("Video Stream", cv2.WND_PROP_VISIBLE) < 1:
                 break

@@ -8,7 +8,7 @@ import struct
 import time
 
 # Server connection
-SERVER_HOST = '192.168.1.140'  # Replace with the server's IP address
+SERVER_HOST = '0.0.0.0'  # Replace with the server's IP address
 SERVER_PORT = 8888
 
 # Video settings
