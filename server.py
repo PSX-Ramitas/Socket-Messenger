@@ -1,6 +1,6 @@
 import socket
 import threading
-
+import time
 
 # Server constants
 HOST = '129.8.215.21'
@@ -13,7 +13,24 @@ instructor_socket = None
 lock = threading.Lock()  # Thread lock to synchronize shared state access
 client_usernames = {}  # Dictionary to map client sockets to usernames
 
+def broadcast_user_list():
+    """Broadcast the list of connected users (with roles) to all connected clients."""
+    with lock:
+        # Create a formatted string of all connected users
+        user_list = []
+        if instructor_socket:
+            user_list.append(f"{client_usernames.get(instructor_socket, 'Unknown')} (Instructor)")
+        for student in students:
+            user_list.append(f"{client_usernames.get(student, 'Unknown')} (Student)")
 
+        user_list_str = ";".join(user_list)  # Format the user list for transmission
+
+        for client_socket in client_usernames.keys():
+            try:
+                client_socket.send(f"USER_LIST|{user_list_str}".encode())
+            except Exception as e:
+                print(f"Error sending user list to client: {e}")
+                
 def broadcast_message(sender_socket, message):
     """Broadcast message to all other connected clients."""
     global instructor_socket  # Declare this as global to access the global scope variable
@@ -115,7 +132,11 @@ def handle_client(client_socket, address):
 
         client_socket.close()
 
-
+def periodically_broadcast():
+    """Broadcast user list periodically."""
+    while True:
+        broadcast_user_list()
+        time.sleep(2)  # Send updates to all clients every 2 seconds
 
 # Set up the server
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -123,8 +144,16 @@ server_socket.bind((HOST, PORT))
 server_socket.listen(5)
 print(f"Server listening on {HOST}:{PORT}...")
 
+# Start the thread for periodic user list broadcasting
+threading.Thread(target=periodically_broadcast, daemon=True).start()
+
+
 while True:
-    client_socket, client_address = server_socket.accept()
-    print(f"Connection from {client_address}")
-    thread = threading.Thread(target=handle_client, args=(client_socket, client_address))
-    thread.start()
+    try:
+        client_socket, client_address = server_socket.accept()
+        print(f"Connection from {client_address}")
+        thread = threading.Thread(target=handle_client, args=(client_socket, client_address))
+        thread.start()
+    except Exception as e:
+        print(f"Error accepting connection: {e}")
+

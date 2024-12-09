@@ -84,18 +84,33 @@ class ChatClient:
 
 
     def setup_chat_ui(self):
-        """Setup the main chat window UI."""
+        """Setup the main chat window UI with a sidebar."""
         for widget in self.root.winfo_children():
             widget.destroy()
 
-        tk.Label(self.root, text="Connected! Type messages below:").pack(pady=5)
-        self.chat_box = tk.Text(self.root, height=15, width=50, state=tk.DISABLED)
+        # Create the main frame
+        self.main_frame = tk.Frame(self.root)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Create the sidebar
+        self.sidebar = tk.Frame(self.main_frame, width=200, bg="lightgrey")
+        self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
+
+        self.user_listbox = tk.Listbox(self.sidebar, height=20, bg="lightgrey")
+        self.user_listbox.pack(padx=5, pady=5, fill=tk.Y)
+
+        # Create the chat area
+        self.chat_area = tk.Frame(self.main_frame)
+        self.chat_area.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+        tk.Label(self.chat_area, text="Connected! Type messages below:").pack(pady=5)
+        self.chat_box = tk.Text(self.chat_area, height=15, width=50, state=tk.DISABLED)
         self.chat_box.pack(pady=5)
 
-        self.msg_entry = tk.Entry(self.root, width=40)
+        self.msg_entry = tk.Entry(self.chat_area, width=40)
         self.msg_entry.pack(pady=5)
 
-        tk.Button(self.root, text="Send", command=self.send_message).pack(pady=10)
+        tk.Button(self.chat_area, text="Send", command=self.send_message).pack(pady=10)
 
     def send_message(self):
         """Send a chat message to the server."""
@@ -118,14 +133,27 @@ class ChatClient:
             try:
                 msg = self.client_socket.recv(1024).decode()
                 if msg:
-                    print(f"[DEBUG] Message received: {msg}")  # Log incoming messages for debugging
-                    self.chat_box.config(state=tk.NORMAL)
-                    self.chat_box.insert(tk.END, f"{msg}\n")
-                    self.chat_box.see(tk.END)
-                    self.chat_box.config(state=tk.DISABLED)
+                    if msg.startswith("USER_LIST|"):
+                        # Update user list sidebar
+                        user_list_str = msg.split("|")[1]
+                        self.update_user_list(user_list_str)
+                    else:
+                        print(f"[DEBUG] Message received: {msg}")  # Log incoming messages for debugging
+                        self.chat_box.config(state=tk.NORMAL)
+                        self.chat_box.insert(tk.END, f"{msg}\n")
+                        self.chat_box.see(tk.END)
+                        self.chat_box.config(state=tk.DISABLED)
             except:
                 print("[ERROR] Lost connection to server.")
                 break
+
+
+    def update_user_list(self, user_list_str):
+        """Update the Listbox sidebar with new user information."""
+        self.user_listbox.delete(0, tk.END)  # Clear the old list
+        for user in user_list_str.split(";"):
+            self.user_listbox.insert(tk.END, user)
+
 
     def run(self):
         """Start the client main loop."""
