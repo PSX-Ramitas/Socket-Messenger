@@ -87,6 +87,7 @@ class ChatClient:
             widget.destroy()
 
         self.main_frame = tk.Frame(self.root)
+        self.root.title("Budget Zoom [" + self.username.get() + "]")
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Create the sidebar
