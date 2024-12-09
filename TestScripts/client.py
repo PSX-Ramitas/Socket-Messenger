@@ -11,7 +11,8 @@ import sys
 
 # Server connection
 SERVER_HOST = '192.168.1.140'  # Replace with the server's IP address
-SERVER_PORT = 8888
+SERVER_PORT = 8888 # Port for video (TCP)
+AUDIO_PORT = 8889  # Port for audio (UDP)
 
 # Video settings
 cam = cv2.VideoCapture(0)
@@ -31,7 +32,7 @@ if not cam.isOpened():
     print("Error: Camera not initialized.")
     sys.exit(1)
 
-def send_data(client_socket):
+def send_video(client_socket):
     """Capture and send video frames only."""
     try:
         stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
@@ -51,8 +52,8 @@ def send_data(client_socket):
             # Pack and send video + audio data
             packet = struct.pack("Q", len(frame_data)) + frame_data + audio_data
             client_socket.sendall(packet)
-            print(f"Packet sent, frame size: {len(frame_data)} bytes")
-            time.sleep(0.5)  # Throttle to avoid overwhelming the server
+            #print(f"Packet sent, frame size: {len(frame_data)} bytes")
+            time.sleep(0.03)  # Throttle to avoid overwhelming the server
     except (ConnectionError, BrokenPipeError):
         print("Server disconnected. Stopping send_data...")
     except Exception as e:
@@ -61,7 +62,7 @@ def send_data(client_socket):
         print("Closing send_data...")
         cam.release()
 
-def receive_data(client_socket):
+def receive_video(client_socket):
     """Receive and display video frames only."""
     print("Starting receive_data...")
     try:
@@ -109,6 +110,34 @@ def receive_data(client_socket):
         print("Closing receive_data...")
         cv2.destroyAllWindows()
 
+def send_audio(audio_socket):
+    """Capture and send audio data over UDP."""
+    stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
+    try:
+        while not stop_client.is_set():
+            audio_data = stream.read(CHUNK)
+            audio_socket.sendto(audio_data, (SERVER_HOST, AUDIO_PORT))
+            print("Audio packet sent.")
+    except Exception as e:
+        print(f"Error in send_audio: {e}")
+    finally:
+        print("Closing send_audio...")
+        stream.close()
+
+def receive_audio(audio_socket):
+    """Receive and play audio data over UDP."""
+    stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, output=True)
+    try:
+        while not stop_client.is_set():
+            audio_data, _ = audio_socket.recvfrom(CHUNK)
+            stream.write(audio_data)
+            print("Audio packet received.")
+    except Exception as e:
+        print(f"Error in receive_audio: {e}")
+    finally:
+        print("Closing receive_audio...")
+        stream.close()
+
 def stop_client_handler(signal, frame):
     """Handle Ctrl+C signal to stop the client."""
     print("\n[SHUTTING DOWN] Client is stopping...")
@@ -119,17 +148,27 @@ signal.signal(signal.SIGINT, stop_client_handler)
 
 # Main client execution
 try:
+    # Create TCP socket for video
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect((SERVER_HOST, SERVER_PORT))
 
+    # Create UDP socket for audio
+    audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
     # Start threads
-    send_thread = threading.Thread(target=send_data, args=(client_socket,), daemon=True)
-    receive_thread = threading.Thread(target=receive_data, args=(client_socket,), daemon=True)
+    send_thread = threading.Thread(target=send_video, args=(client_socket,), daemon=True)
+    receive_thread = threading.Thread(target=receive_video, args=(client_socket,), daemon=True)
+    audio_send_thread = threading.Thread(target=send_audio, args=(audio_socket,), daemon=True)
+    audio_receive_thread = threading.Thread(target=receive_audio, args=(audio_socket,), daemon=True)
 
     send_thread.start()
-    print("send_data thread started.")
+    print("send_video thread started.")
     receive_thread.start()
-    print("receive_data thread started.")
+    print("receive_video thread started.")
+    audio_send_thread.start()
+    print("send_audio thread started.")
+    audio_receive_thread.start()
+    print("receive_audio thread started.")
 
     # Keep the main thread running to handle Ctrl+C
     while not stop_client.is_set():
@@ -139,5 +178,6 @@ except Exception as e:
 finally:
     stop_client.set()  # Ensure all threads exit
     client_socket.close()
+    audio_socket.close()
     print("Client socket closed.")
 
