@@ -120,11 +120,18 @@ def receive_audio(audio_socket):
     while not stop_client.is_set():
         try:
             audio_data, _ = audio_socket.recvfrom(4096)
+            if not audio_data:
+                print("[WARNING] Received empty audio packet.")
+                continue
+            # Ensure audio packet size matches CHUNK
+            if len(audio_data) != CHUNK:
+                print(f"[DEBUG] Received audio packet of unexpected size: {len(audio_data)}")
             stream.write(audio_data)
         except Exception as e:
             print(f"Error in receive_audio: {e}")
             break
     print("Closing receive_audio...")
+
 
 def stop_client_handler(signal, frame):
     """Handle Ctrl+C signal to stop the client."""

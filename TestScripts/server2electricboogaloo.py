@@ -65,10 +65,13 @@ def handle_audio():
             # Receive audio data from a client
             audio_data, client_address = audio_server_socket.recvfrom(4096)
 
-            # Validate received data
+            # Check for empty packets
             if not audio_data:
                 print(f"[WARNING] Empty audio packet received from {client_address}")
                 continue
+
+            # Log debug info
+            print(f"[DEBUG] Received {len(audio_data)} bytes from {client_address}")
 
             # Add client to the set of audio clients
             if client_address not in audio_clients:
@@ -78,9 +81,13 @@ def handle_audio():
             # Relay the audio data to other clients
             for addr in audio_clients:
                 if addr != client_address:  # Don't echo to the sender
-                    audio_server_socket.sendto(audio_data, addr)
+                    try:
+                        audio_server_socket.sendto(audio_data, addr)
+                    except Exception as e:
+                        print(f"Error sending audio to {addr}: {e}")
         except Exception as e:
             print(f"Audio handling error: {e}")
+
 
 
 
