@@ -3,7 +3,7 @@ import threading
 import time
 
 # Server constants
-HOST = '129.8.215.21'
+HOST = socket.gethostbyname(socket.gethostname())
 PORT = 8080
 
 # Keep track of roles and connected clients
