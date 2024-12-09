@@ -68,6 +68,7 @@ def handle_command(client_socket, command):
     """Handle instructor commands."""
     parts = command.split(" ", 2)
     cmd = parts[0]
+
     if cmd == "/whisper" and len(parts) > 2:
         recipient_name, whisper_msg = parts[1], parts[2]
         recipient_socket = next((sock for sock, name in client_usernames.items() if name == recipient_name), None)
@@ -75,25 +76,48 @@ def handle_command(client_socket, command):
             recipient_socket.send(f"[Whisper from {client_usernames[client_socket]}]: {whisper_msg}".encode())
         else:
             client_socket.send("User not found.".encode())
+
     elif cmd == "/kick" and client_socket == instructor_socket:
         recipient_name = parts[1]
+
+        # Prevent self-kicking
+        if recipient_name == client_usernames[client_socket]:
+            client_socket.send("You cannot kick yourself.".encode())
+            return
+
         recipient_socket = next((sock for sock, name in client_usernames.items() if name == recipient_name), None)
         if recipient_socket:
             recipient_socket.send("You have been kicked out by the instructor.".encode())
             disconnect_client(recipient_socket)
             broadcast_message(client_socket, f"{recipient_name} has been kicked out.")
+        else:
+            client_socket.send("User not found.".encode())
+
+
     elif cmd == "/mute" and client_socket == instructor_socket:
-        recipient_name, duration = parts[1], int(parts[2])
+        recipient_name = parts[1]
+
+        # Prevent self-muting
+        if recipient_name == client_usernames[client_socket]:
+            client_socket.send("You cannot mute yourself.".encode())
+            return
+
         recipient_socket = next((sock for sock, name in client_usernames.items() if name == recipient_name), None)
         if recipient_socket:
+            duration = int(parts[2]) if len(parts) > 2 else 60  # Default mute duration to 60 seconds
             muted_clients[recipient_socket] = time.time() + duration
             client_socket.send(f"{recipient_name} has been muted for {duration} seconds.".encode())
             recipient_socket.send(f"You have been muted by the instructor for {duration} seconds.".encode())
+        else:
+            client_socket.send("User not found.".encode())
+
     elif cmd == "/quit":
         client_socket.send("You have left the chat.".encode())
         disconnect_client(client_socket)
+
     else:
         client_socket.send("Invalid command or insufficient permissions.".encode())
+
 
 
 def handle_client(client_socket, address):
