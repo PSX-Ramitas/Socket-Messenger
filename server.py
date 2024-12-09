@@ -16,20 +16,31 @@ client_usernames = {}  # Dictionary to map client sockets to usernames
 def broadcast_user_list():
     """Broadcast the list of connected users (with roles) to all connected clients."""
     with lock:
-        # Create a formatted string of all connected users
         user_list = []
+
+        # Include instructor only if connected
         if instructor_socket:
             user_list.append(f"{client_usernames.get(instructor_socket, 'Unknown')} (Instructor)")
-        for student in students:
-            user_list.append(f"{client_usernames.get(student, 'Unknown')} (Student)")
 
-        user_list_str = ";".join(user_list)  # Format the user list for transmission
+        # Include students only if instructor is present
+        if instructor_connected:
+            for student in students:
+                user_list.append(f"{client_usernames.get(student, 'Unknown')} (Student)")
 
+        # Send the appropriate user list to all clients
         for client_socket in client_usernames.keys():
             try:
+                if client_socket in students and not instructor_connected:
+                    # Show only the student's name if the instructor is disconnected
+                    user_list_str = f"{client_usernames.get(client_socket, 'Unknown')} (Student)"
+                else:
+                    # Show the full user list
+                    user_list_str = ";".join(user_list)
+
                 client_socket.send(f"USER_LIST|{user_list_str}".encode())
             except Exception as e:
                 print(f"Error sending user list to client: {e}")
+
                 
 def broadcast_message(sender_socket, message):
     """Broadcast message to all other connected clients."""
@@ -100,6 +111,7 @@ def handle_client(client_socket, address):
                             for student in students:
                                 try:
                                     student.send("Instructor disconnected. Connection terminated.".encode())
+                                    time.sleep(2.0) #Give instructor 2 seconds to reconnect
                                     student.close()
                                 except Exception as e:
                                     print(f"[ERROR] Unable to disconnect student: {e}")
@@ -136,7 +148,7 @@ def periodically_broadcast():
     """Broadcast user list periodically."""
     while True:
         broadcast_user_list()
-        time.sleep(2)  # Send updates to all clients every 2 seconds
+        time.sleep(0.2)  # Send updates to all clients every 0.2 seconds
 
 # Set up the server
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
