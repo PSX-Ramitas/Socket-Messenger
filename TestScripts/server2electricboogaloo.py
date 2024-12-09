@@ -2,7 +2,7 @@ import socket
 import threading
 import signal
 import sys
-import time 
+import time
 
 # Server settings
 INADDR_ANY = socket.gethostbyname(socket.gethostname())
@@ -36,13 +36,13 @@ def handle_video(client_socket, cli_addr):
                 print(f"[{cli_addr}] Video client disconnected.")
                 break
 
-            # Relay video data to other clients
+            # Relay video data to other connected clients
             for c in video_clients:
                 if c != client_socket:
                     try:
                         c.sendall(data)
                     except Exception as e:
-                        print(f"Error sending video data: {e}")
+                        print(f"Error sending video data to {c}: {e}")
                         video_clients.remove(c)
         except ConnectionError as e:
             print(f"[{cli_addr}] Video connection error: {e}")
@@ -53,42 +53,42 @@ def handle_video(client_socket, cli_addr):
 
     # Cleanup
     client_socket.close()
-    video_clients.remove(client_socket)
+    if client_socket in video_clients:
+        video_clients.remove(client_socket)
     print(f"[VIDEO DISCONNECTED] {cli_addr} disconnected.")
 
 
 def handle_audio():
-    """Relay audio data between clients."""
+    """Relay audio data between clients while ensuring connection remains alive."""
     print("[AUDIO SERVER STARTED]")
     while server_running:
         try:
-            # Receive audio data from a client
+            # Receive audio data from any client
             audio_data, client_address = audio_server_socket.recvfrom(4096)
 
-            # Check for empty packets
+            # Handle empty packets
             if not audio_data:
                 print(f"[WARNING] Empty audio packet received from {client_address}")
                 continue
 
-            # Log debug info
-            print(f"[DEBUG] Received {len(audio_data)} bytes from {client_address}")
+            # Log debug information
+            print(f"[DEBUG] Received audio data from {client_address}")
 
-            # Add client to the set of audio clients
+            # Add new audio clients dynamically
             if client_address not in audio_clients:
                 print(f"New audio client connected: {client_address}")
                 audio_clients.add(client_address)
 
-            # Relay the audio data to other clients
-            for addr in audio_clients:
-                if addr != client_address:  # Don't echo to the sender
+            # Send audio to all other clients except the sender
+            for addr in list(audio_clients):  # Copying list to handle dynamic updates
+                if addr != client_address:  # Avoid sending back to the sender
                     try:
                         audio_server_socket.sendto(audio_data, addr)
                     except Exception as e:
                         print(f"Error sending audio to {addr}: {e}")
+                        audio_clients.discard(addr)  # Remove failed client
         except Exception as e:
-            print(f"Audio handling error: {e}")
-
-
+            print(f"Error in audio relay loop: {e}")
 
 
 
@@ -99,7 +99,7 @@ def start_video_server():
     print(f"[VIDEO LISTENING] Server is listening on {INADDR_ANY}:{VIDEO_PORT}")
     while server_running:
         try:
-            video_server_socket.settimeout(1.0)  # Timeout to check the server_running flag
+            video_server_socket.settimeout(1.0)  # Timeout to check server_running
             client_socket, cli_addr = video_server_socket.accept()
             video_clients.append(client_socket)
             thread = threading.Thread(target=handle_video, args=(client_socket, cli_addr))
@@ -155,8 +155,6 @@ audio_thread.start()
 # Keep the main thread alive
 try:
     while server_running:
-        # Keep the main thread alive
         time.sleep(0.1)
 except KeyboardInterrupt:
     stop_server(None, None)
-
