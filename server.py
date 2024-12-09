@@ -18,23 +18,23 @@ def broadcast_message(sender_socket, message):
     """Broadcast message to all other connected clients."""
     global instructor_socket  # Declare this as global to access the global scope variable
     with lock:
+        sender_username = client_usernames.get(sender_socket, "Unknown")
         for student in students:
             if student != sender_socket:
                 try:
-                    # Use stored usernames instead of address
-                    username = client_usernames.get(student, "Unknown")
-                    student.send(f"{username}: {message}".encode())
+                    # Send the sender's username explicitly
+                    student.send(f"{sender_username}: {message}".encode())
                 except Exception as e:
                     print(f"Error sending to a student: {e}")
                     students.remove(student)  # Remove broken sockets
         if instructor_socket and instructor_socket != sender_socket:
             try:
-                # Use stored usernames instead of address
-                username = client_usernames.get(instructor_socket, "Unknown")
-                instructor_socket.send(f"{username}: {message}".encode())
+                # Send the sender's username explicitly to the instructor
+                instructor_socket.send(f"{sender_username}: {message}".encode())
             except Exception as e:
                 print(f"Error sending to the instructor: {e}")
                 instructor_socket = None
+
 
 
 def handle_client(client_socket, address):
