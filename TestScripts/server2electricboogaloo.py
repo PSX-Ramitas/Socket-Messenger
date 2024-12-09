@@ -2,6 +2,7 @@ import socket
 import threading
 import signal
 import sys
+import time 
 
 # Server settings
 INADDR_ANY = socket.gethostbyname(socket.gethostname())
@@ -65,7 +66,9 @@ def handle_audio():
             audio_data, client_address = audio_server_socket.recvfrom(4096)
 
             # Add client to the set of audio clients
-            audio_clients.add(client_address)
+            if client_address not in audio_clients:
+                print(f"New audio client: {client_address}")
+                audio_clients.add(client_address)
 
             # Relay the audio data to other clients
             for addr in audio_clients:
@@ -73,6 +76,7 @@ def handle_audio():
                     audio_server_socket.sendto(audio_data, addr)
         except Exception as e:
             print(f"Audio handling error: {e}")
+
 
 
 def start_video_server():
@@ -138,6 +142,8 @@ audio_thread.start()
 # Keep the main thread alive
 try:
     while server_running:
-        signal.pause()
+        # Keep the main thread alive
+        time.sleep(0.1)
 except KeyboardInterrupt:
     stop_server(None, None)
+

@@ -95,17 +95,18 @@ def receive_video(client_socket):
     print("Closing receive_video...")
     cv2.destroyAllWindows()
 
-def send_audio(audio_socket):
-    """Send audio data over UDP."""
-    stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
-    while not stop_client.is_set():
-        try:
-            audio_data = stream.read(CHUNK, exception_on_overflow=False)
-            audio_socket.sendto(audio_data, (SERVER_HOST, AUDIO_PORT))
-        except Exception as e:
-            print(f"Error in send_audio: {e}")
-            break
-    print("Closing send_audio...")
+def send_audio(audio_socket, audio_server):
+    """Capture and send audio data via UDP."""
+    try:
+        stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
+        while not stop_client.is_set():
+            audio_data = stream.read(CHUNK)
+            audio_socket.sendto(audio_data, audio_server)  # Send audio to the server
+    except Exception as e:
+        print(f"Error in send_audio: {e}")
+    finally:
+        print("Closing send_audio...")
+
 
 def receive_audio(audio_socket):
     """Receive and play audio data over UDP."""
@@ -135,11 +136,11 @@ try:
 
     # Audio socket (UDP)
     audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
+    audio_server = (SERVER_HOST, AUDIO_PORT)
     # Start threads
     video_send_thread = threading.Thread(target=send_video, args=(client_socket,), daemon=True)
     video_receive_thread = threading.Thread(target=receive_video, args=(client_socket,), daemon=True)
-    audio_send_thread = threading.Thread(target=send_audio, args=(audio_socket,), daemon=True)
+    audio_send_thread = threading.Thread(target=send_audio, args=(audio_socket, audio_server), daemon=True)
     audio_receive_thread = threading.Thread(target=receive_audio, args=(audio_socket,), daemon=True)
 
     video_send_thread.start()
