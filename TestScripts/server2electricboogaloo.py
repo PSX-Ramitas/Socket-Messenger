@@ -5,83 +5,139 @@ import sys
 
 # Server settings
 INADDR_ANY = socket.gethostbyname(socket.gethostname())
-PORT = 8888  # Port for video (TCP)
-AUDIO_PORT = 9999  # Port for audio (UDP)
+VIDEO_PORT = 8888
+AUDIO_PORT = 9999
 FORMAT = "utf-8"
 
-# Video (TCP) socket
+# Video server socket
 video_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-video_server_socket.bind((INADDR_ANY, PORT))
+video_server_socket.bind((INADDR_ANY, VIDEO_PORT))
 
-# Audio (UDP) socket
+# Audio server socket
 audio_server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 audio_server_socket.bind((INADDR_ANY, AUDIO_PORT))
 
-# Server state
+# Flag to control the server loop
 server_running = True
-clients = []
+
+# Lists to track connected clients
+video_clients = []
+audio_clients = set()  # Use a set to track unique UDP clients
+
 
 def handle_video(client_socket, cli_addr):
-    """Handle video relaying for a client."""
-    print(f"[NEW VIDEO CONNECTION] {cli_addr} connected.")
+    """Handle video streaming for a single client."""
+    print(f"[VIDEO CONNECTION] {cli_addr} connected.")
     while server_running:
         try:
             data = client_socket.recv(4096)
             if not data:
+                print(f"[{cli_addr}] Video client disconnected.")
                 break
 
-            # Relay data to other clients
-            for c in clients:
+            # Relay video data to other clients
+            for c in video_clients:
                 if c != client_socket:
-                    c.sendall(data)
-        except Exception as e:
-            print(f"[{cli_addr}] Video error: {e}")
+                    try:
+                        c.sendall(data)
+                    except Exception as e:
+                        print(f"Error sending video data: {e}")
+                        video_clients.remove(c)
+        except ConnectionError as e:
+            print(f"[{cli_addr}] Video connection error: {e}")
             break
-    print(f"[DISCONNECTED] {cli_addr} video disconnected.")
+        except Exception as e:
+            print(f"[{cli_addr}] Unexpected error: {e}")
+            break
+
+    # Cleanup
     client_socket.close()
-    clients.remove(client_socket)
+    video_clients.remove(client_socket)
+    print(f"[VIDEO DISCONNECTED] {cli_addr} disconnected.")
+
 
 def handle_audio():
     """Relay audio data between clients."""
     print("[AUDIO SERVER STARTED]")
     while server_running:
         try:
+            # Receive audio data from a client
             audio_data, client_address = audio_server_socket.recvfrom(4096)
-            for client in clients:
-                if client.getpeername() != client_address:
-                    audio_server_socket.sendto(audio_data, client.getpeername())
+
+            # Add client to the set of audio clients
+            audio_clients.add(client_address)
+
+            # Relay the audio data to other clients
+            for addr in audio_clients:
+                if addr != client_address:  # Don't echo to the sender
+                    audio_server_socket.sendto(audio_data, addr)
         except Exception as e:
             print(f"Audio handling error: {e}")
+
+
+def start_video_server():
+    """Start the video server."""
+    global server_running
+    video_server_socket.listen(5)
+    print(f"[VIDEO LISTENING] Server is listening on {INADDR_ANY}:{VIDEO_PORT}")
+    while server_running:
+        try:
+            video_server_socket.settimeout(1.0)  # Timeout to check the server_running flag
+            client_socket, cli_addr = video_server_socket.accept()
+            video_clients.append(client_socket)
+            thread = threading.Thread(target=handle_video, args=(client_socket, cli_addr))
+            thread.start()
+            print(f"[ACTIVE VIDEO CONNECTIONS] {threading.active_count() - 1}")
+        except socket.timeout:
+            continue
+
 
 def stop_server(signal, frame):
     """Handle Ctrl+C signal to stop the server."""
     global server_running
     print("\n[SHUTTING DOWN] Server is stopping...")
     server_running = False
-    for client in clients:
-        client.close()
-    video_server_socket.close()
-    audio_server_socket.close()
+
+    # Close all video client sockets
+    for client in video_clients:
+        try:
+            client.close()
+        except Exception as e:
+            print(f"Error closing video client socket: {e}")
+
+    # Close audio server socket
+    try:
+        audio_server_socket.close()
+    except Exception as e:
+        print(f"Error closing audio server socket: {e}")
+
+    # Close video server socket
+    try:
+        video_server_socket.close()
+    except Exception as e:
+        print(f"Error closing video server socket: {e}")
+
     print("[SERVER STOPPED]")
     sys.exit(0)
 
-# Attach signal handler
+
+# Attach signal handler for graceful shutdown
 signal.signal(signal.SIGINT, stop_server)
 
-print(f"[STARTING] Video server on {INADDR_ANY}:{PORT}")
-print(f"[STARTING] Audio server on {INADDR_ANY}:{AUDIO_PORT}")
+# Start the server
+print(f"Server running on {INADDR_ANY}, hostname: {socket.gethostname()}")
+print("[STARTING] Server is starting...")
 
-# Start audio thread
+# Launch video and audio servers in separate threads
+video_thread = threading.Thread(target=start_video_server, daemon=True)
 audio_thread = threading.Thread(target=handle_audio, daemon=True)
+
+video_thread.start()
 audio_thread.start()
 
-# Start video server
-video_server_socket.listen()
-while server_running:
-    try:
-        client_socket, cli_addr = video_server_socket.accept()
-        clients.append(client_socket)
-        thread = threading.Thread(target=handle_video, args=(client_socket, cli_addr), daemon=True)
-        thread.start()
-    except Exception as e:
-        print(f"Server error: {e}")
+# Keep the main thread alive
+try:
+    while server_running:
+        signal.pause()
+except KeyboardInterrupt:
+    stop_server(None, None)
