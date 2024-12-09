@@ -28,7 +28,6 @@ class ChatClient:
             pass
         self.root.destroy()
 
-
     def setup_login_ui(self):
         """Setup the initial login window UI."""
         for widget in self.root.winfo_children():
@@ -82,13 +81,11 @@ class ChatClient:
             messagebox.showerror("Error", f"Could not connect: {str(e)}")
             self.setup_login_ui()
 
-
     def setup_chat_ui(self):
         """Setup the main chat window UI with a sidebar."""
         for widget in self.root.winfo_children():
             widget.destroy()
 
-        # Create the main frame
         self.main_frame = tk.Frame(self.root)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -113,19 +110,25 @@ class ChatClient:
         tk.Button(self.chat_area, text="Send", command=self.send_message).pack(pady=10)
 
     def send_message(self):
-        """Send a chat message to the server."""
+        """Send a chat message or handle a local command."""
         msg = self.msg_entry.get().strip()
         if msg:
-            try:
-                self.client_socket.send(msg.encode())
-                self.msg_entry.delete(0, tk.END)
-                # Display the sent message in the sender's chatbox log
-                self.chat_box.config(state=tk.NORMAL)
-                self.chat_box.insert(tk.END, f"You: {msg}\n")
-                self.chat_box.see(tk.END)
-                self.chat_box.config(state=tk.DISABLED)
-            except Exception as e:
-                messagebox.showerror("Error", f"Could not send message: {str(e)}")
+            if msg.startswith("/"):
+                self.process_local_command(msg)
+            else:
+                try:
+                    self.client_socket.send(msg.encode())
+                    self.msg_entry.delete(0, tk.END)
+                    self.display_message(f"You: {msg}", "normal")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Could not send message: {str(e)}")
+
+    def process_local_command(self, command):
+        """Process local commands like /quit."""
+        if command.startswith("/quit"):
+            self.on_close()
+        else:
+            self.client_socket.send(command.encode())  # Send to the server for processing
 
     def receive_message(self):
         """Listen for server messages and display them in real-time."""
@@ -134,26 +137,34 @@ class ChatClient:
                 msg = self.client_socket.recv(1024).decode()
                 if msg:
                     if msg.startswith("USER_LIST|"):
-                        # Update user list sidebar
-                        user_list_str = msg.split("|")[1]
-                        self.update_user_list(user_list_str)
+                        self.update_user_list(msg.split("|")[1])
+                    elif msg.startswith("[System]"):
+                        self.display_message(msg, "bold")
+                    elif msg.startswith("Whisper"):
+                        self.display_message(msg, "italic")
                     else:
-                        print(f"[DEBUG] Message received: {msg}")  # Log incoming messages for debugging
-                        self.chat_box.config(state=tk.NORMAL)
-                        self.chat_box.insert(tk.END, f"{msg}\n")
-                        self.chat_box.see(tk.END)
-                        self.chat_box.config(state=tk.DISABLED)
+                        self.display_message(msg, "normal")
             except:
-                print("[ERROR] Lost connection to server.")
+                self.display_message("[System] Lost connection to server.", "bold")
                 break
-
 
     def update_user_list(self, user_list_str):
         """Update the Listbox sidebar with new user information."""
-        self.user_listbox.delete(0, tk.END)  # Clear the old list
+        self.user_listbox.delete(0, tk.END)
         for user in user_list_str.split(";"):
             self.user_listbox.insert(tk.END, user)
 
+    def display_message(self, message, style):
+        """Display messages in the chat box with different styles."""
+        self.chat_box.config(state=tk.NORMAL)
+        if style == "bold":
+            self.chat_box.insert(tk.END, f"{message}\n", "bold")
+        elif style == "italic":
+            self.chat_box.insert(tk.END, f"{message}\n", "italic")
+        else:
+            self.chat_box.insert(tk.END, f"{message}\n")
+        self.chat_box.see(tk.END)
+        self.chat_box.config(state=tk.DISABLED)
 
     def run(self):
         """Start the client main loop."""

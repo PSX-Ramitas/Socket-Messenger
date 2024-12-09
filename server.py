@@ -12,6 +12,8 @@ students = []
 instructor_socket = None
 lock = threading.Lock()  # Thread lock to synchronize shared state access
 client_usernames = {}  # Dictionary to map client sockets to usernames
+muted_clients = {}  # Dictionary to track muted clients and their mute durations
+
 
 def broadcast_user_list():
     """Broadcast the list of connected users (with roles) to all connected clients."""
@@ -41,32 +43,61 @@ def broadcast_user_list():
             except Exception as e:
                 print(f"Error sending user list to client: {e}")
 
-                
+
 def broadcast_message(sender_socket, message):
-    """Broadcast message to all other connected clients."""
+    """Broadcast a message to all other connected clients."""
     global instructor_socket  # Declare this as global to access the global scope variable
     with lock:
         sender_username = client_usernames.get(sender_socket, "Unknown")
         for student in students:
             if student != sender_socket:
                 try:
-                    # Send the sender's username explicitly
                     student.send(f"{sender_username}: {message}".encode())
                 except Exception as e:
                     print(f"Error sending to a student: {e}")
                     students.remove(student)  # Remove broken sockets
         if instructor_socket and instructor_socket != sender_socket:
             try:
-                # Send the sender's username explicitly to the instructor
                 instructor_socket.send(f"{sender_username}: {message}".encode())
             except Exception as e:
                 print(f"Error sending to the instructor: {e}")
                 instructor_socket = None
 
 
+def handle_command(client_socket, command):
+    """Handle instructor commands."""
+    parts = command.split(" ", 2)
+    cmd = parts[0]
+    if cmd == "/whisper" and len(parts) > 2:
+        recipient_name, whisper_msg = parts[1], parts[2]
+        recipient_socket = next((sock for sock, name in client_usernames.items() if name == recipient_name), None)
+        if recipient_socket:
+            recipient_socket.send(f"[Whisper from {client_usernames[client_socket]}]: {whisper_msg}".encode())
+        else:
+            client_socket.send("User not found.".encode())
+    elif cmd == "/kick" and client_socket == instructor_socket:
+        recipient_name = parts[1]
+        recipient_socket = next((sock for sock, name in client_usernames.items() if name == recipient_name), None)
+        if recipient_socket:
+            recipient_socket.send("You have been kicked out by the instructor.".encode())
+            disconnect_client(recipient_socket)
+            broadcast_message(client_socket, f"{recipient_name} has been kicked out.")
+    elif cmd == "/mute" and client_socket == instructor_socket:
+        recipient_name, duration = parts[1], int(parts[2])
+        recipient_socket = next((sock for sock, name in client_usernames.items() if name == recipient_name), None)
+        if recipient_socket:
+            muted_clients[recipient_socket] = time.time() + duration
+            client_socket.send(f"{recipient_name} has been muted for {duration} seconds.".encode())
+            recipient_socket.send(f"You have been muted by the instructor for {duration} seconds.".encode())
+    elif cmd == "/quit":
+        client_socket.send("You have left the chat.".encode())
+        disconnect_client(client_socket)
+    else:
+        client_socket.send("Invalid command or insufficient permissions.".encode())
+
 
 def handle_client(client_socket, address):
-    global instructor_connected, students, instructor_socket, client_usernames
+    global instructor_connected, students, instructor_socket, client_usernames, muted_clients
     try:
         # Receive initial data from the client
         login_data = client_socket.recv(1024).decode().strip()
@@ -100,55 +131,50 @@ def handle_client(client_socket, address):
         while True:
             msg = client_socket.recv(1024).decode()
             if msg:
-                if msg == "DISCONNECT":  # Handle client disconnect
-                    with lock:
-                        if client_socket in students:
-                            students.remove(client_socket)
-                            print(f"[INFO] Disconnected student: {username}")
-                        if client_socket == instructor_socket:
-                            # Forcefully disconnect all students if instructor disconnects
-                            print("[INFO] Instructor disconnected, disconnecting all students...")
-                            for student in students:
-                                try:
-                                    student.send("Instructor disconnected. Connection terminated.".encode())
-                                    time.sleep(2.0) #Give instructor 2 seconds to reconnect
-                                    student.close()
-                                except Exception as e:
-                                    print(f"[ERROR] Unable to disconnect student: {e}")
-                            students.clear()
-                            instructor_connected = False
-                            instructor_socket = None
-                    break
-                print(f"[{address}] {username}: {msg}")
-                broadcast_message(client_socket, msg)
+                if client_socket in muted_clients and time.time() < muted_clients[client_socket]:
+                    client_socket.send("You are muted.".encode())
+                    continue
+
+                if msg.startswith("/"):
+                    handle_command(client_socket, msg)
+                else:
+                    print(f"[{address}] {username}: {msg}")
+                    broadcast_message(client_socket, msg)
 
     except Exception as e:
         print(f"Error with {address}: {e}")
     finally:
-        with lock:
-            if client_socket in client_usernames:
-                del client_usernames[client_socket]
-            if client_socket == instructor_socket:
-                instructor_connected = False
-                instructor_socket = None
-                # Disconnect all students if instructor disconnects
-                for student in students:
-                    try:
-                        student.send("Instructor disconnected. Connection terminated.".encode())
-                        student.close()
-                    except Exception as e:
-                        print(f"[ERROR] Unable to disconnect student: {e}")
-                students.clear()
-            elif client_socket in students:
-                students.remove(client_socket)
+        disconnect_client(client_socket)
 
-        client_socket.close()
+
+def disconnect_client(client_socket):
+    """Disconnect the client and clean up state."""
+    global instructor_connected, instructor_socket, students
+    with lock:
+        if client_socket in client_usernames:
+            del client_usernames[client_socket]
+        if client_socket == instructor_socket:
+            instructor_connected = False
+            instructor_socket = None
+            for student in students:
+                try:
+                    student.send("Instructor disconnected. Connection terminated.".encode())
+                    student.close()
+                except Exception as e:
+                    print(f"[ERROR] Unable to disconnect student: {e}")
+            students.clear()
+        elif client_socket in students:
+            students.remove(client_socket)
+
+    client_socket.close()
+
 
 def periodically_broadcast():
     """Broadcast user list periodically."""
     while True:
         broadcast_user_list()
         time.sleep(0.2)  # Send updates to all clients every 0.2 seconds
+
 
 # Set up the server
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -159,7 +185,6 @@ print(f"Server listening on {HOST}:{PORT}...")
 # Start the thread for periodic user list broadcasting
 threading.Thread(target=periodically_broadcast, daemon=True).start()
 
-
 while True:
     try:
         client_socket, client_address = server_socket.accept()
@@ -168,4 +193,3 @@ while True:
         thread.start()
     except Exception as e:
         print(f"Error accepting connection: {e}")
-
