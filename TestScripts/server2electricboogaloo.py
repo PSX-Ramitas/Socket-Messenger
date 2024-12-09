@@ -65,9 +65,14 @@ def handle_audio():
             # Receive audio data from a client
             audio_data, client_address = audio_server_socket.recvfrom(4096)
 
+            # Validate received data
+            if not audio_data:
+                print(f"[WARNING] Empty audio packet received from {client_address}")
+                continue
+
             # Add client to the set of audio clients
             if client_address not in audio_clients:
-                print(f"New audio client: {client_address}")
+                print(f"New audio client connected: {client_address}")
                 audio_clients.add(client_address)
 
             # Relay the audio data to other clients
@@ -76,6 +81,7 @@ def handle_audio():
                     audio_server_socket.sendto(audio_data, addr)
         except Exception as e:
             print(f"Audio handling error: {e}")
+
 
 
 

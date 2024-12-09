@@ -10,7 +10,7 @@ import signal
 import sys
 
 # Server connection details
-SERVER_HOST = '73.41.106.193'  # Replace with your server's IP address
+SERVER_HOST = '192.168.1.68'  # Replace with your server's IP address
 SERVER_PORT = 8888  # Port for video (TCP)
 AUDIO_PORT = 9999  # Port for audio (UDP)
 
@@ -100,12 +100,18 @@ def send_audio(audio_socket, audio_server):
     try:
         stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
         while not stop_client.is_set():
-            audio_data = stream.read(CHUNK)
+            try:
+                audio_data = stream.read(CHUNK, exception_on_overflow=False)
+            except Exception as e:
+                print(f"Audio capture error: {e}")
+                audio_data = b'\x00' * CHUNK  # Send silence if there's an error
+
             audio_socket.sendto(audio_data, audio_server)  # Send audio to the server
     except Exception as e:
         print(f"Error in send_audio: {e}")
     finally:
         print("Closing send_audio...")
+
 
 
 def receive_audio(audio_socket):
