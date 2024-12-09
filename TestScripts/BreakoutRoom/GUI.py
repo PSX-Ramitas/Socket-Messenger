@@ -9,7 +9,7 @@ def start_gui():
         global user_role
         user_role = role
         try:
-            subprocess.Popen(["python", "client.py", role])
+            subprocess.Popen(["python", "TestScripts\BreakoutRoom\client.py", role])
             root.destroy()
         except Exception as e:
             messagebox.showerror("Error", f"Could not launch client: {e}")
