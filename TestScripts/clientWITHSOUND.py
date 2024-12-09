@@ -9,6 +9,7 @@ import time
 import signal
 import sys
 
+
 # Server connection details
 SERVER_HOST = '192.168.1.68'  # Replace with your server's IP address
 VIDEO_PORT = 8888  # TCP port for video
@@ -84,11 +85,69 @@ def receive_video(client_socket):
 
             cv2.imshow("Video Stream", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
+                stop_client.set()
                 break
         except Exception as e:
             print(f"Error receiving video: {e}")
             break
     cv2.destroyAllWindows()
+
+
+def send_audio():
+    """Capture audio from the microphone and send to server via UDP."""
+    print("[AUDIO SEND STARTED]")
+    # Setup PyAudio input stream
+    stream = p.open(format=FORMAT,
+                    channels=CHANNELS,
+                    rate=RATE,
+                    input=True,
+                    frames_per_buffer=CHUNK)
+
+    # Setup UDP socket for sending
+    audio_client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    while not stop_client.is_set():
+        try:
+            audio_data = stream.read(CHUNK, exception_on_overflow=False)
+            audio_client_socket.sendto(audio_data, (SERVER_HOST, AUDIO_PORT))
+        except Exception as e:
+            print(f"Error sending audio: {e}")
+            continue
+
+    stream.stop_stream()
+    stream.close()
+    audio_client_socket.close()
+    print("[Audio Send Stopped]")
+
+
+def receive_audio():
+    """Receive audio from server and play it."""
+    print("[AUDIO RECEIVE STARTED]")
+    # Setup PyAudio playback stream
+    stream = p.open(format=FORMAT,
+                    channels=CHANNELS,
+                    rate=RATE,
+                    output=True,
+                    frames_per_buffer=CHUNK)
+
+    # Setup UDP socket for receiving
+    audio_receive_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    audio_receive_socket.bind((SERVER_HOST, AUDIO_PORT))
+
+    while not stop_client.is_set():
+        try:
+            # Receive audio from the server
+            audio_data, _ = audio_receive_socket.recvfrom(4096)
+            if audio_data:
+                stream.write(audio_data)
+        except Exception as e:
+            print(f"Error receiving audio: {e}")
+            continue
+
+    stream.stop_stream()
+    stream.close()
+    audio_receive_socket.close()
+    print("[Audio Receive Stopped]")
 
 
 def stop_client_handler(signal, frame):
@@ -104,10 +163,15 @@ try:
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect((SERVER_HOST, VIDEO_PORT))
 
-    # Threads for video handling
+    # Start threads for video handling
     threading.Thread(target=send_video, args=(client_socket,), daemon=True).start()
     threading.Thread(target=receive_video, args=(client_socket,), daemon=True).start()
 
+    # Start threads for audio
+    threading.Thread(target=send_audio, daemon=True).start()
+    threading.Thread(target=receive_audio, daemon=True).start()
+
+    # Main loop waits until stop_client is triggered
     while not stop_client.is_set():
         time.sleep(0.1)
 
