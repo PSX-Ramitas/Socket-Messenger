@@ -49,12 +49,11 @@ class ChatClient:
 
             self.client_socket.connect((server_ip, server_port))
 
-            # Wait for the server's role request
-            server_prompt = self.client_socket.recv(1024).decode().strip()
-            print(f"[DEBUG] Server prompt: {server_prompt}")
+            # Send role and username as a single message to the server
+            login_data = f"{self.role.get()}|{self.username.get()}"
+            self.client_socket.send(login_data.encode())
 
-            # Send the role to the server
-            self.client_socket.send(self.role.get().encode())
+            # Wait for server's response
             response = self.client_socket.recv(1024).decode().strip()
             print(f"[DEBUG] Server response: {response}")
 
@@ -64,11 +63,11 @@ class ChatClient:
             else:
                 messagebox.showinfo("Success", response)
                 self.setup_chat_ui()
-                # Start listening to server messages in a separate thread
                 threading.Thread(target=self.receive_message, daemon=True).start()
         except Exception as e:
             messagebox.showerror("Error", f"Could not connect: {str(e)}")
             self.setup_login_ui()
+
 
     def setup_chat_ui(self):
         """Setup the main chat window UI."""
