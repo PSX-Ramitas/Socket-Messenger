@@ -87,7 +87,6 @@ class ChatClient:
             widget.destroy()
 
         self.main_frame = tk.Frame(self.root)
-        self.root.title(self.username.get())
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Create the sidebar
@@ -107,9 +106,40 @@ class ChatClient:
 
         self.msg_entry = tk.Entry(self.chat_area, width=40)
         self.msg_entry.pack(pady=5)
+        self.msg_entry.bind("<KeyRelease>", self.show_command_suggestions)
+
+        self.suggestion_frame = tk.Frame(self.chat_area, bg="white", relief="solid", bd=1)
+        self.suggestion_frame.place_forget()
 
         tk.Button(self.chat_area, text="Send", command=self.send_message).pack(pady=10)
+    
+    def show_command_suggestions(self, event):
+        """Display command suggestions when user types '/'."""
+        input_text = self.msg_entry.get()
+        if input_text.startswith("/"):
+            commands = ["/whisper <username> text", "/mute <username>", "/kick <username>", "/quit"]
+            matching_commands = [cmd for cmd in commands if cmd.startswith(input_text)]
 
+            if matching_commands:
+                self.suggestion_frame.place(x=self.msg_entry.winfo_x(), y=self.msg_entry.winfo_y() - 50)
+                for widget in self.suggestion_frame.winfo_children():
+                    widget.destroy()
+
+                for cmd in matching_commands:
+                    lbl = tk.Label(self.suggestion_frame, text=cmd, bg="white", anchor="w")
+                    lbl.pack(fill=tk.X)
+                    lbl.bind("<Button-1>", lambda e, c=cmd: self.autocomplete_command(c))
+            else:
+                self.suggestion_frame.place_forget()
+        else:
+            self.suggestion_frame.place_forget()
+            
+    def autocomplete_command(self, command):
+        """Autocomplete the selected command."""
+        self.msg_entry.delete(0, tk.END)
+        self.msg_entry.insert(0, command)
+        self.suggestion_frame.place_forget()
+    
     def send_message(self):
         """Send a chat message or handle a local command."""
         msg = self.msg_entry.get().strip()
