@@ -15,6 +15,20 @@ class ChatClient:
         
         self.setup_login_ui()
 
+        # Handle window close event
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def on_close(self):
+        """Handle the client window close to disconnect properly."""
+        try:
+            if self.client_socket:
+                self.client_socket.send("DISCONNECT".encode())  # Notify server about disconnection
+                self.client_socket.close()
+        except:
+            pass
+        self.root.destroy()
+
+
     def setup_login_ui(self):
         """Setup the initial login window UI."""
         for widget in self.root.winfo_children():

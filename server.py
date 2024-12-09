@@ -67,16 +67,29 @@ def handle_client(client_socket, address):
                 else:
                     students.append(client_socket)
                     client_socket.send("Student connected successfully!".encode())
-            else:
-                client_socket.send("Connection rejected: Invalid role.".encode())
-                client_socket.close()
-                del client_usernames[client_socket]
-                return
 
         # Handle incoming messages
         while True:
             msg = client_socket.recv(1024).decode()
             if msg:
+                if msg == "DISCONNECT":  # Handle client disconnect
+                    with lock:
+                        if client_socket in students:
+                            students.remove(client_socket)
+                            print(f"[INFO] Disconnected student: {username}")
+                        if client_socket == instructor_socket:
+                            # Forcefully disconnect all students if instructor disconnects
+                            print("[INFO] Instructor disconnected, disconnecting all students...")
+                            for student in students:
+                                try:
+                                    student.send("Instructor disconnected. Connection terminated.".encode())
+                                    student.close()
+                                except Exception as e:
+                                    print(f"[ERROR] Unable to disconnect student: {e}")
+                            students.clear()
+                            instructor_connected = False
+                            instructor_socket = None
+                    break
                 print(f"[{address}] {username}: {msg}")
                 broadcast_message(client_socket, msg)
 
@@ -86,13 +99,22 @@ def handle_client(client_socket, address):
         with lock:
             if client_socket in client_usernames:
                 del client_usernames[client_socket]
-            if role == "instructor":
+            if client_socket == instructor_socket:
                 instructor_connected = False
                 instructor_socket = None
-            elif role == "student" and client_socket in students:
+                # Disconnect all students if instructor disconnects
+                for student in students:
+                    try:
+                        student.send("Instructor disconnected. Connection terminated.".encode())
+                        student.close()
+                    except Exception as e:
+                        print(f"[ERROR] Unable to disconnect student: {e}")
+                students.clear()
+            elif client_socket in students:
                 students.remove(client_socket)
 
         client_socket.close()
+
 
 
 # Set up the server
