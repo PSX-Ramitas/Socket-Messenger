@@ -2,18 +2,33 @@ import socket
 import tkinter as tk
 from tkinter import messagebox
 import threading
+from PIL import Image, ImageTk  # Import PIL for handling image formats
 
 
 class ChatClient:
     def __init__(self):
         self.client_socket = None
         self.root = tk.Tk()
+        self.root.title("Login")
         self.username = tk.StringVar()
         self.role = tk.StringVar()
         self.server_ip = tk.StringVar(value="localhost")
         self.server_port = tk.StringVar(value="8080")
         
+        # Load scrolling background
+        self.bg_image = Image.open("Assets/Images/background.jpg")
+        self.bg_width, self.bg_height = self.bg_image.size
+        self.bg_image_tk1 = ImageTk.PhotoImage(self.bg_image)
+        self.bg_image_tk2 = ImageTk.PhotoImage(self.bg_image)  # Second image for seamless scrolling
+        self.scroll_offset = 0
+
+        # Load logo image
+        self.logo_image = Image.open("Assets/Images/logo.png")
+        self.logo_image_tk = ImageTk.PhotoImage(self.logo_image)
+
+        # Setup UI with scrolling effect
         self.setup_login_ui()
+        self.animate_background()
 
         # Handle window close event
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -28,11 +43,38 @@ class ChatClient:
             pass
         self.root.destroy()
 
+    def animate_background(self):
+        """Scroll the background continuously left."""
+        # Shift image by 1 pixel to the left
+        self.scroll_offset -= 1
+
+        # Reset scrolling if the first image scrolls off the screen
+        if self.scroll_offset <= -self.bg_width:
+            self.scroll_offset = 0
+
+        # Redraw the scrolling images
+        self.canvas.delete("all")
+        self.canvas.create_image(self.scroll_offset, 0, anchor="nw", image=self.bg_image_tk1)
+        self.canvas.create_image(self.scroll_offset + self.bg_width, 0, anchor="nw", image=self.bg_image_tk2)
+
+        # Overlay the logo in the center of the canvas
+        logo_x_position = 200  # Adjust X as needed to center the logo
+        logo_y_position = 150   # Adjust Y as needed
+        self.canvas.create_image(logo_x_position, logo_y_position, anchor="center", image=self.logo_image_tk)
+
+        # Schedule the next scroll update
+        self.root.after(20, self.animate_background)
+
     def setup_login_ui(self):
-        """Setup the initial login window UI."""
+        """Setup the initial login screen with scrolling effect."""
         for widget in self.root.winfo_children():
             widget.destroy()
 
+        # Create Canvas for scrolling background
+        self.canvas = tk.Canvas(self.root, width=400, height=300)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+
+        # Set up widgets
         tk.Label(self.root, text="Server IP Address:").pack(pady=5)
         tk.Entry(self.root, textvariable=self.server_ip).pack(pady=5)
 
@@ -87,7 +129,7 @@ class ChatClient:
             widget.destroy()
 
         self.main_frame = tk.Frame(self.root)
-        self.root.title("Budget Zoom [" + self.username.get() + "]")
+        self.root.title("Chat Lobby [" + self.username.get() + "]")
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Create the sidebar
@@ -204,7 +246,7 @@ class ChatClient:
         self.chat_box.config(state=tk.DISABLED)
 
     def run(self):
-        """Start the client main loop."""
+        """Start the main loop."""
         self.root.mainloop()
 
 
