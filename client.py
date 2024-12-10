@@ -113,12 +113,20 @@ class ChatClient:
         self.suggestion_frame.place_forget()
 
         tk.Button(self.chat_area, text="Send", command=self.send_message).pack(pady=10)
-    
+
     def show_command_suggestions(self, event):
         """Display command suggestions when user types '/'."""
         input_text = self.msg_entry.get()
         if input_text.startswith("/"):
-            commands = ["/whisper <username> text", "/mute <username>", "/kick <username>", "/quit"]
+            commands = [
+                "/whisper <username> text",
+                "/mute <username> [duration]",
+                "/kick <username>",
+                "/create_room <room_name>",
+                "/move_to_room <username> <room_name>",
+                "/call_back <room_name>",
+                "/quit"
+            ]
             matching_commands = [cmd for cmd in commands if cmd.startswith(input_text)]
 
             if matching_commands:
@@ -134,13 +142,13 @@ class ChatClient:
                 self.suggestion_frame.place_forget()
         else:
             self.suggestion_frame.place_forget()
-            
+
     def autocomplete_command(self, command):
         """Autocomplete the selected command."""
         self.msg_entry.delete(0, tk.END)
         self.msg_entry.insert(0, command)
         self.suggestion_frame.place_forget()
-    
+
     def send_message(self):
         """Send a chat message or handle a local command."""
         msg = self.msg_entry.get().strip()
@@ -163,19 +171,16 @@ class ChatClient:
             self.client_socket.send(command.encode())  # Send to the server for processing
 
     def receive_message(self):
-        """Listen for server messages and display them in real-time."""
+        """Listen for server messages and handle them appropriately."""
         while True:
             try:
                 msg = self.client_socket.recv(1024).decode()
-                if msg:
-                    if msg.startswith("USER_LIST|"):
-                        self.update_user_list(msg.split("|")[1])
-                    elif msg.startswith("[System]"):
-                        self.display_message(msg, "bold")
-                    elif msg.startswith("Whisper"):
-                        self.display_message(msg, "italic")
-                    else:
-                        self.display_message(msg, "normal")
+                if msg.startswith("USER_LIST|"):
+                    self.update_user_list(msg.split("|")[1])
+                elif "moved to room" in msg or "called back" in msg:
+                    messagebox.showinfo("Room Update", msg)
+                else:
+                    self.display_message(msg, "normal")
             except:
                 self.display_message("[System] Lost connection to server.", "bold")
                 break

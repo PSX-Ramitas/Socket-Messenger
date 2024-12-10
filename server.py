@@ -7,6 +7,7 @@ HOST = socket.gethostbyname(socket.gethostname())
 PORT = 8080
 
 # Keep track of roles and connected clients
+rooms = {"main": []}  # Default room is "main"
 instructor_connected = False
 students = []
 instructor_socket = None
@@ -16,52 +17,34 @@ muted_clients = {}  # Dictionary to track muted clients and their mute durations
 
 
 def broadcast_user_list():
-    """Broadcast the list of connected users (with roles) to all connected clients."""
+    """Broadcast the list of connected users (with roles and room info) to all clients."""
     with lock:
         user_list = []
+        for room, clients in rooms.items():
+            for client in clients:
+                role = "Instructor" if client == instructor_socket else "Student"
+                username = client_usernames.get(client, "Unknown")
+                user_list.append(f"{username} ({role}, Room: {room})")
 
-        # Include instructor only if connected
-        if instructor_socket:
-            user_list.append(f"{client_usernames.get(instructor_socket, 'Unknown')} (Instructor)")
-
-        # Include students only if instructor is present
-        if instructor_connected:
-            for student in students:
-                user_list.append(f"{client_usernames.get(student, 'Unknown')} (Student)")
-
-        # Send the appropriate user list to all clients
         for client_socket in client_usernames.keys():
+            user_list_str = ";".join(user_list)
             try:
-                if client_socket in students and not instructor_connected:
-                    # Show only the student's name if the instructor is disconnected
-                    user_list_str = f"{client_usernames.get(client_socket, 'Unknown')} (Student)"
-                else:
-                    # Show the full user list
-                    user_list_str = ";".join(user_list)
-
                 client_socket.send(f"USER_LIST|{user_list_str}".encode())
             except Exception as e:
                 print(f"Error sending user list to client: {e}")
 
 
 def broadcast_message(sender_socket, message):
-    """Broadcast a message to all other connected clients."""
-    global instructor_socket  # Declare this as global to access the global scope variable
+    """Broadcast a message to all clients in the sender's room."""
     with lock:
-        sender_username = client_usernames.get(sender_socket, "Unknown")
-        for student in students:
-            if student != sender_socket:
-                try:
-                    student.send(f"{sender_username}: {message}".encode())
-                except Exception as e:
-                    print(f"Error sending to a student: {e}")
-                    students.remove(student)  # Remove broken sockets
-        if instructor_socket and instructor_socket != sender_socket:
-            try:
-                instructor_socket.send(f"{sender_username}: {message}".encode())
-            except Exception as e:
-                print(f"Error sending to the instructor: {e}")
-                instructor_socket = None
+        sender_room = next((room for room, clients in rooms.items() if sender_socket in clients), None)
+        if sender_room:
+            for client in rooms[sender_room]:
+                if client != sender_socket:
+                    try:
+                        client.send(f"{client_usernames[sender_socket]}: {message}".encode())
+                    except Exception as e:
+                        print(f"Error sending message: {e}")
 
 
 def handle_command(client_socket, command):
@@ -79,12 +62,6 @@ def handle_command(client_socket, command):
 
     elif cmd == "/kick" and client_socket == instructor_socket:
         recipient_name = parts[1]
-
-        # Prevent self-kicking
-        if recipient_name == client_usernames[client_socket]:
-            client_socket.send("You cannot kick yourself.".encode())
-            return
-
         recipient_socket = next((sock for sock, name in client_usernames.items() if name == recipient_name), None)
         if recipient_socket:
             recipient_socket.send("You have been kicked out by the instructor.".encode())
@@ -93,15 +70,8 @@ def handle_command(client_socket, command):
         else:
             client_socket.send("User not found.".encode())
 
-
     elif cmd == "/mute" and client_socket == instructor_socket:
         recipient_name = parts[1]
-
-        # Prevent self-muting
-        if recipient_name == client_usernames[client_socket]:
-            client_socket.send("You cannot mute yourself.".encode())
-            return
-
         recipient_socket = next((sock for sock, name in client_usernames.items() if name == recipient_name), None)
         if recipient_socket:
             duration = int(parts[2]) if len(parts) > 2 else 60  # Default mute duration to 60 seconds
@@ -111,6 +81,36 @@ def handle_command(client_socket, command):
         else:
             client_socket.send("User not found.".encode())
 
+    elif cmd == "/create_room" and client_socket == instructor_socket:
+        room_name = parts[1]
+        if room_name not in rooms:
+            rooms[room_name] = []
+            client_socket.send(f"Room '{room_name}' created.".encode())
+        else:
+            client_socket.send("Room already exists.".encode())
+
+    elif cmd == "/move_to_room" and client_socket == instructor_socket:
+        recipient_name, room_name = parts[1], parts[2]
+        recipient_socket = next((sock for sock, name in client_usernames.items() if name == recipient_name), None)
+        if recipient_socket and room_name in rooms:
+            with lock:
+                for clients in rooms.values():
+                    if recipient_socket in clients:
+                        clients.remove(recipient_socket)
+                        break
+                rooms[room_name].append(recipient_socket)
+            recipient_socket.send(f"You have been moved to room '{room_name}'.".encode())
+            broadcast_user_list()
+
+    elif cmd == "/call_back" and client_socket == instructor_socket:
+        room_name = parts[1]
+        if room_name in rooms:
+            with lock:
+                for student in rooms[room_name]:
+                    rooms["main"].append(student)
+                rooms[room_name] = []
+            broadcast_user_list()
+
     elif cmd == "/quit":
         client_socket.send("You have left the chat.".encode())
         disconnect_client(client_socket)
@@ -119,17 +119,16 @@ def handle_command(client_socket, command):
         client_socket.send("Invalid command or insufficient permissions.".encode())
 
 
-
 def handle_client(client_socket, address):
     global instructor_connected, students, instructor_socket, client_usernames, muted_clients
     try:
-        # Receive initial data from the client
         login_data = client_socket.recv(1024).decode().strip()
         role, username = login_data.split("|")
         print(f"[DEBUG] Role: {role}, Username: {username}")
 
-        with lock:  # Lock for thread-safe access
-            client_usernames[client_socket] = username  # Map the client socket to their username
+        with lock:
+            client_usernames[client_socket] = username
+            rooms["main"].append(client_socket)
 
             if role == 'instructor':
                 if instructor_connected:
@@ -151,7 +150,6 @@ def handle_client(client_socket, address):
                     students.append(client_socket)
                     client_socket.send("Student connected successfully!".encode())
 
-        # Handle incoming messages
         while True:
             msg = client_socket.recv(1024).decode()
             if msg:
@@ -162,7 +160,6 @@ def handle_client(client_socket, address):
                 if msg.startswith("/"):
                     handle_command(client_socket, msg)
                 else:
-                    print(f"[{address}] {username}: {msg}")
                     broadcast_message(client_socket, msg)
 
     except Exception as e:
@@ -172,11 +169,14 @@ def handle_client(client_socket, address):
 
 
 def disconnect_client(client_socket):
-    """Disconnect the client and clean up state."""
     global instructor_connected, instructor_socket, students
     with lock:
         if client_socket in client_usernames:
             del client_usernames[client_socket]
+        for room, clients in rooms.items():
+            if client_socket in clients:
+                clients.remove(client_socket)
+                break
         if client_socket == instructor_socket:
             instructor_connected = False
             instructor_socket = None
@@ -194,10 +194,9 @@ def disconnect_client(client_socket):
 
 
 def periodically_broadcast():
-    """Broadcast user list periodically."""
     while True:
         broadcast_user_list()
-        time.sleep(0.2)  # Send updates to all clients every 0.2 seconds
+        time.sleep(0.2)
 
 
 # Set up the server
@@ -206,7 +205,6 @@ server_socket.bind((HOST, PORT))
 server_socket.listen(5)
 print(f"Server listening on {HOST}:{PORT}...")
 
-# Start the thread for periodic user list broadcasting
 threading.Thread(target=periodically_broadcast, daemon=True).start()
 
 while True:
@@ -217,3 +215,4 @@ while True:
         thread.start()
     except Exception as e:
         print(f"Error accepting connection: {e}")
+
