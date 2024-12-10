@@ -15,11 +15,21 @@ class ChatClient:
         self.server_ip = tk.StringVar(value="localhost")
         self.server_port = tk.StringVar(value="8080")
         
-        # Load scrolling background
-        self.bg_image = Image.open("Assets/Images/background.jpg")
-        self.bg_width, self.bg_height = self.bg_image.size
-        self.bg_image_tk1 = ImageTk.PhotoImage(self.bg_image)
-        self.bg_image_tk2 = ImageTk.PhotoImage(self.bg_image)  # Second image for seamless scrolling
+        # Default theme
+        self.theme = "light"  # Default is light mode
+
+        # Load images for light and dark backgrounds
+        self.bg_image_light = Image.open("Assets/Images/background-light.jpg")
+        self.bg_image_dark = Image.open("Assets/Images/background-dark.jpg")
+        self.bg_image_tk_light = ImageTk.PhotoImage(self.bg_image_light)
+        self.bg_image_tk_dark = ImageTk.PhotoImage(self.bg_image_dark)
+        
+        # Set initial background images
+        self.bg_image_tk1 = self.bg_image_tk_light
+        self.bg_image_tk2 = self.bg_image_tk_light
+
+        # Set up for scrolling effect
+        self.bg_width, self.bg_height = self.bg_image_light.size
         self.scroll_offset = 0
 
         # Load logo image
@@ -64,6 +74,59 @@ class ChatClient:
 
         # Schedule the next scroll update
         self.root.after(20, self.animate_background)
+        
+    def toggle_theme(self):
+        """Toggle between light and dark themes."""
+        if self.theme == "light":
+            self.theme = "dark"
+            self.bg_image_tk1 = self.bg_image_tk_dark
+            self.bg_image_tk2 = self.bg_image_tk_dark
+            self.root.configure(bg="black")
+            self.update_theme_widgets(fg="white", bg="black")
+        else:
+            self.theme = "light"
+            self.bg_image_tk1 = self.bg_image_tk_light
+            self.bg_image_tk2 = self.bg_image_tk_light
+            self.root.configure(bg="white")
+            self.update_theme_widgets(fg="black", bg="white")
+
+        # Dynamically update the chat UI (if present)
+        if hasattr(self, "main_frame") and self.main_frame.winfo_ismapped():
+            self.update_chat_ui_theme()
+
+    def update_chat_ui_theme(self):
+        """Update the styles of all widgets in the chat UI based on the current theme."""
+        fg_color = "white" if self.theme == "dark" else "black"
+        bg_color = "black" if self.theme == "dark" else "white"
+        sidebar_bg = "grey" if self.theme == "dark" else "lightgrey"
+
+        # Update sidebar widgets
+        self.sidebar.configure(bg=sidebar_bg)
+        self.user_listbox.configure(bg=sidebar_bg, fg=fg_color)
+
+        # Update chat area widgets
+        self.chat_area.configure(bg=bg_color)
+        for widget in self.chat_area.winfo_children():
+            if isinstance(widget, tk.Label) or isinstance(widget, tk.Button):
+                widget.configure(fg=fg_color, bg=bg_color)
+            elif isinstance(widget, tk.Text):
+                widget.configure(fg=fg_color, bg=bg_color)
+            elif isinstance(widget, tk.Entry):
+                widget.configure(fg=fg_color, bg=bg_color, insertbackground=fg_color)
+
+        # Update sidebar toggle button
+        for widget in self.sidebar.winfo_children():
+            if isinstance(widget, tk.Button) and widget["text"] == "Toggle Dark Mode":
+                widget.configure(fg=fg_color, bg=sidebar_bg)
+
+    def update_theme_widgets(self, fg, bg):
+        """Update the foreground and background colors of widgets."""
+        for widget in self.root.winfo_children():
+            if isinstance(widget, tk.Label) or isinstance(widget, tk.Button) or isinstance(widget, tk.Entry):
+                widget.configure(fg=fg, bg=bg)
+            elif isinstance(widget, tk.Listbox):
+                widget.configure(fg=fg, bg=bg)
+        # Update other widgets if needed
 
     def setup_login_ui(self):
         """Setup the initial login screen with scrolling effect."""
@@ -75,6 +138,9 @@ class ChatClient:
         self.canvas.pack(fill=tk.BOTH, expand=True)
 
         # Set up widgets
+        
+        tk.Button(self.root, text="Toggle Dark Mode", command=self.toggle_theme).pack(pady=10)
+
         tk.Label(self.root, text="Server IP Address:").pack(pady=5)
         tk.Entry(self.root, textvariable=self.server_ip).pack(pady=5)
 
@@ -90,6 +156,7 @@ class ChatClient:
         role_options.pack(pady=5)
 
         tk.Button(self.root, text="Login", command=self.connect_to_server).pack(pady=10)
+        
 
     def connect_to_server(self):
         """Attempt connection to server with the provided credentials."""
@@ -132,29 +199,37 @@ class ChatClient:
         self.root.title("Chat Lobby [" + self.username.get() + "]")
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
+        # Apply current theme colors
+        fg_color = "white" if self.theme == "dark" else "black"
+        bg_color = "black" if self.theme == "dark" else "white"
+        sidebar_bg = "grey" if self.theme == "dark" else "lightgrey"
+
         # Create the sidebar
-        self.sidebar = tk.Frame(self.main_frame, width=200, bg="lightgrey")
+        self.sidebar = tk.Frame(self.main_frame, width=200, bg=sidebar_bg)
         self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
 
-        self.user_listbox = tk.Listbox(self.sidebar, height=20, bg="lightgrey")
+        self.user_listbox = tk.Listbox(self.sidebar, height=20, bg=sidebar_bg, fg=fg_color)
         self.user_listbox.pack(padx=5, pady=5, fill=tk.Y)
 
         # Create the chat area
-        self.chat_area = tk.Frame(self.main_frame)
+        self.chat_area = tk.Frame(self.main_frame, bg=bg_color)
         self.chat_area.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
-        tk.Label(self.chat_area, text="Connected! Type messages below:").pack(pady=5)
-        self.chat_box = tk.Text(self.chat_area, height=15, width=50, state=tk.DISABLED)
+        tk.Label(self.chat_area, text="Connected! Type messages below:", bg=bg_color, fg=fg_color).pack(pady=5)
+        self.chat_box = tk.Text(self.chat_area, height=15, width=50, state=tk.DISABLED, bg=bg_color, fg=fg_color)
         self.chat_box.pack(pady=5)
 
-        self.msg_entry = tk.Entry(self.chat_area, width=40)
+        self.msg_entry = tk.Entry(self.chat_area, width=40, bg=bg_color, fg=fg_color, insertbackground=fg_color)
         self.msg_entry.pack(pady=5)
         self.msg_entry.bind("<KeyRelease>", self.show_command_suggestions)
 
         self.suggestion_frame = tk.Frame(self.chat_area, bg="white", relief="solid", bd=1)
         self.suggestion_frame.place_forget()
 
-        tk.Button(self.chat_area, text="Send", command=self.send_message).pack(pady=10)
+        tk.Button(self.chat_area, text="Send", command=self.send_message, bg=bg_color, fg=fg_color).pack(pady=10)
+
+        tk.Button(self.sidebar, text="Toggle Dark Mode", command=self.toggle_theme, bg=sidebar_bg, fg=fg_color).pack(pady=5)
+
 
     def show_command_suggestions(self, event):
         """Display command suggestions when user types '/'."""
