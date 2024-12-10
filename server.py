@@ -14,6 +14,7 @@ instructor_socket = None
 lock = threading.Lock()  # Thread lock to synchronize shared state access
 client_usernames = {}  # Dictionary to map client sockets to usernames
 muted_clients = {}  # Dictionary to track muted clients and their mute durations
+client_rooms = {}  # Dictionary to track client sockets and their room names
 
 
 def broadcast_user_list():
@@ -56,7 +57,13 @@ def handle_command(client_socket, command):
         recipient_name, whisper_msg = parts[1], parts[2]
         recipient_socket = next((sock for sock, name in client_usernames.items() if name == recipient_name), None)
         if recipient_socket:
-            recipient_socket.send(f"[Whisper from {client_usernames[client_socket]}]: {whisper_msg}".encode())
+            sender_room = client_rooms.get(client_socket, None)
+            recipient_room = client_rooms.get(recipient_socket, None)
+            # Check room restrictions
+            if client_socket != instructor_socket and sender_room != recipient_room:
+                client_socket.send("You can only whisper to users in your room.".encode())
+            else:
+                recipient_socket.send(f"[Whisper from {client_usernames[client_socket]}]: {whisper_msg}".encode())
         else:
             client_socket.send("User not found.".encode())
 
@@ -94,20 +101,30 @@ def handle_command(client_socket, command):
         recipient_socket = next((sock for sock, name in client_usernames.items() if name == recipient_name), None)
         if recipient_socket and room_name in rooms:
             with lock:
+                # Remove client from the current room
                 for clients in rooms.values():
                     if recipient_socket in clients:
                         clients.remove(recipient_socket)
                         break
+                
+                # Add client to the new room
                 rooms[room_name].append(recipient_socket)
+                client_rooms[recipient_socket] = room_name  # Update the room tracking
+                
             recipient_socket.send(f"You have been moved to room '{room_name}'.".encode())
             broadcast_user_list()
+        else:
+            client_socket.send("Invalid room name or user not found.".encode())
+
 
     elif cmd == "/call_back" and client_socket == instructor_socket:
         room_name = parts[1]
         if room_name in rooms:
             with lock:
                 for student in rooms[room_name]:
+                    student.send(f"You have been called back to main.".encode())
                     rooms["main"].append(student)
+                    client_rooms[student] = "main"
                 rooms[room_name] = []
             broadcast_user_list()
 
@@ -129,7 +146,7 @@ def handle_client(client_socket, address):
         with lock:
             client_usernames[client_socket] = username
             rooms["main"].append(client_socket)
-
+            client_rooms[client_socket] = "main"
             if role == 'instructor':
                 if instructor_connected:
                     client_socket.send("Connection rejected: Instructor already connected.".encode())
